@@ -170,15 +170,19 @@
     font-size:13.5px;
   }
 
-  .voice-row{ display:flex; align-items:center; gap:10px; margin-top:8px; flex-wrap:wrap; }
-  .mic-btn{
-    width:44px; height:44px; border-radius:50%;
-    border:1px solid var(--gold-dim); background:transparent;
-    display:flex; align-items:center; justify-content:center;
-    cursor:pointer; color:var(--gold); flex-shrink:0;
+  input[type="date"], input[type="time"]{
+    background: var(--dark);
+    border:1px solid var(--gold-dim);
+    border-radius: 0.7rem;
+    padding: 8px 10px;
+    min-height:40px;
+    font-size:13.5px;
+    accent-color: #C8A14B;
+    color-scheme: dark; /* keeps the native picker UI on-brand, never blue */
+    width:100%;
   }
-  .mic-btn.recording{ background: var(--gold); color:var(--dark); box-shadow: 0 0 0 6px var(--gold-soft); }
-  .mic-hint{ font-size:11.5px; color: var(--ivory-dim); }
+  .date-time-row{ display:flex; gap:10px; margin: 0 0 4px; }
+  .date-time-row > div{ flex:1; min-width:0; }
 
   /* Timeline */
   .date-heading{
@@ -190,6 +194,7 @@
     display:flex; gap:12px; align-items:center;
     background: var(--dark2); border:1px solid var(--gold-dim);
     border-radius: 1rem; padding:10px 12px; margin-bottom:10px;
+    cursor:pointer;
   }
   .meal-row img.thumb{
     width:56px; height:56px; border-radius:0.7rem; object-fit:cover; flex-shrink:0;
@@ -316,6 +321,17 @@
       <div class="preview-wrap" id="previewWrap">
         <img id="previewImg" alt="Meal preview">
 
+        <div class="date-time-row">
+          <div>
+            <label class="field-label" for="captureDateInput">Date</label>
+            <input type="date" id="captureDateInput">
+          </div>
+          <div>
+            <label class="field-label" for="captureTimeInput">Time</label>
+            <input type="time" id="captureTimeInput">
+          </div>
+        </div>
+
         <label class="field-label">Meal type</label>
         <div class="segmented" id="mealTypeGroup">
           <button class="seg-btn" data-type="Breakfast">Breakfast</button>
@@ -326,18 +342,7 @@
         </div>
 
         <label class="field-label" for="noteInput">Note</label>
-        <textarea id="noteInput" placeholder="What did you eat? (typed or voice)"></textarea>
-        <div class="voice-row">
-          <button class="mic-btn" id="micBtn" title="Voice note" aria-label="Voice note">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
-          </button>
-          <select id="captureLangSelect" aria-label="Voice language">
-            <option value="en-US">EN</option>
-            <option value="zh-CN">中文</option>
-            <option value="ms-MY">BM</option>
-          </select>
-          <span class="mic-hint" id="micHint">Tap the mic to dictate — typing always works too.</span>
-        </div>
+        <textarea id="noteInput" placeholder="What did you eat?"></textarea>
 
         <div class="row-gap">
           <button class="btn primary block" id="saveMealBtn">Save meal</button>
@@ -424,18 +429,6 @@
     </div>
 
     <div class="card">
-      <h2>Voice &amp; language</h2>
-      <div class="field-row">
-        <label class="field-label" style="margin:0;" for="settingsLangSelect">Dictation language</label>
-        <select id="settingsLangSelect">
-          <option value="en-US">English (US)</option>
-          <option value="zh-CN">中文 (Mandarin)</option>
-          <option value="ms-MY">Bahasa Melayu</option>
-        </select>
-      </div>
-    </div>
-
-    <div class="card">
       <h2>About</h2>
       <p style="font-size:12.5px; color:var(--ivory-dim); line-height:1.6;">
         Meal Lens is a single-user tool for YC. Photos are compressed on-device and synced to
@@ -480,7 +473,6 @@
     meals:    'ml_meals',
     refresh:  'ml_dbx_refresh',
     verifier: 'ml_dbx_verifier',
-    lang:     'ml_lang',
     account:  'ml_dbx_account'
   };
   var DROPBOX_CLIENT_ID = '1311r1pmp1byvub';
@@ -990,93 +982,35 @@
   }
 
   /* =========================================================
-   * Voice input — webkitSpeechRecognition, restart-on-end loop
-   * so dictation keeps going on iOS Safari, ALWAYS with a typed
-   * fallback (the textarea itself).
-   * ========================================================= */
-  var recognition = null;
-  var recognizing = false;
-
-  function getLang(){ return localStorage.getItem(LSK.lang) || 'en-US'; }
-  function setLang(l){
-    try { localStorage.setItem(LSK.lang, l); } catch(e){}
-    if (recognition) recognition.lang = l;
-    var a = document.getElementById('captureLangSelect');
-    var b = document.getElementById('settingsLangSelect');
-    if (a) a.value = l;
-    if (b) b.value = l;
-  }
-
-  function setupRecognition(){
-    var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) return null;
-    var r = new SR();
-    r.continuous = true;
-    r.interimResults = true;
-    r.lang = getLang();
-    r.onresult = function(e){
-      var finalText = '';
-      for (var i = e.resultIndex; i < e.results.length; i++){
-        if (e.results[i].isFinal) finalText += e.results[i][0].transcript;
-      }
-      if (finalText){
-        var ta = document.getElementById('noteInput');
-        if (ta) ta.value = (ta.value ? ta.value + ' ' : '') + finalText.trim();
-      }
-    };
-    r.onend = function(){
-      // iOS stops recognition after brief silence — restart to emulate
-      // continuous dictation while the user still has the mic "on".
-      if (recognizing){
-        try { r.start(); } catch(e){}
-      }
-    };
-    r.onerror = function(e){
-      console.warn('[Meal Lens] speech recognition error', e.error);
-      if (e.error === 'not-allowed' || e.error === 'service-not-allowed'){
-        recognizing = false;
-        updateMicUI();
-      }
-    };
-    return r;
-  }
-
-  function updateMicUI(){
-    var btn = document.getElementById('micBtn');
-    var hint = document.getElementById('micHint');
-    if (btn) btn.classList.toggle('recording', recognizing);
-    if (hint) hint.textContent = recognizing ? 'Listening… tap to stop.' : 'Tap the mic to dictate — typing always works too.';
-  }
-
-  function toggleVoice(){
-    if (!recognition) recognition = setupRecognition();
-    if (!recognition){
-      toast('Voice input not supported here — just type your note');
-      return;
-    }
-    if (recognizing){
-      recognizing = false;
-      try { recognition.stop(); } catch(e){}
-    } else {
-      recognizing = true;
-      recognition.lang = getLang();
-      try { recognition.start(); } catch(e){}
-    }
-    updateMicUI();
-  }
-
-  /* =========================================================
    * Capture flow
    * ========================================================= */
   var pendingCapture = null; // {blob, thumbDataURL}
   var selectedMealType = null;
+  var editingMealId = null; // set while editing an existing timeline entry
+
+  function fillDateTimeInputs(dateStr, timeStr){
+    var d = document.getElementById('captureDateInput');
+    var t = document.getElementById('captureTimeInput');
+    if (d) d.value = dateStr;
+    if (t) t.value = timeStr;
+  }
+
+  function setSaveButtonMode(editing){
+    var btn = document.getElementById('saveMealBtn');
+    if (btn) btn.textContent = editing ? 'Save changes' : 'Save meal';
+  }
 
   function resetCaptureForm(){
     pendingCapture = null;
+    editingMealId = null;
     selectedMealType = guessMealType();
     document.getElementById('previewWrap').classList.remove('show');
     document.getElementById('captureHero').style.display = 'block';
+    document.getElementById('previewImg').style.display = '';
     document.getElementById('noteInput').value = '';
+    setSaveButtonMode(false);
+    var nowParts = localDateParts(new Date());
+    fillDateTimeInputs(nowParts.date, nowParts.time);
     document.querySelectorAll('#mealTypeGroup .seg-btn').forEach(function(b){
       b.classList.toggle('active', b.dataset.type === selectedMealType);
     });
@@ -1084,13 +1018,18 @@
 
   function onFileChosen(file){
     if (!file) return;
+    editingMealId = null;
     toast('Compressing photo…');
     compressImage(file).then(function(result){
       pendingCapture = result;
+      document.getElementById('previewImg').style.display = '';
       document.getElementById('previewImg').src = result.thumbDataURL;
       document.getElementById('captureHero').style.display = 'none';
       document.getElementById('previewWrap').classList.add('show');
       selectedMealType = guessMealType();
+      setSaveButtonMode(false);
+      var nowParts = localDateParts(new Date());
+      fillDateTimeInputs(nowParts.date, nowParts.time);
       document.querySelectorAll('#mealTypeGroup .seg-btn').forEach(function(b){
         b.classList.toggle('active', b.dataset.type === selectedMealType);
       });
@@ -1100,20 +1039,83 @@
     });
   }
 
+  // Open the capture form pre-filled with an existing timeline entry so its
+  // date, time, meal type and note can be corrected. The already-uploaded
+  // photo is never moved/renamed — photoPath stays exactly as first synced.
+  function enterEditMode(meal){
+    pendingCapture = null;
+    editingMealId = meal.id;
+    selectedMealType = meal.mealType;
+    document.getElementById('captureHero').style.display = 'none';
+    document.getElementById('previewWrap').classList.add('show');
+    var img = document.getElementById('previewImg');
+    if (meal.thumb){
+      img.style.display = '';
+      img.src = meal.thumb;
+    } else {
+      img.style.display = 'none';
+    }
+    document.getElementById('noteInput').value = meal.note || '';
+    fillDateTimeInputs(meal.date, meal.time);
+    setSaveButtonMode(true);
+    document.querySelectorAll('#mealTypeGroup .seg-btn').forEach(function(b){
+      b.classList.toggle('active', b.dataset.type === selectedMealType);
+    });
+  }
+
   function saveMealFromForm(){
+    var dateVal = document.getElementById('captureDateInput').value;
+    var timeVal = document.getElementById('captureTimeInput').value;
+    var mealType = selectedMealType || guessMealType();
+    var note = document.getElementById('noteInput').value.trim();
+
+    if (editingMealId){
+      var meals = loadMeals();
+      var idx = -1;
+      for (var i = 0; i < meals.length; i++){ if (meals[i].id === editingMealId){ idx = i; break; } }
+      if (idx === -1){
+        toast('Could not find that meal');
+        resetCaptureForm();
+        return;
+      }
+      var existing = meals[idx];
+      existing.date = dateVal || existing.date;
+      existing.time = timeVal || existing.time;
+      existing.mealType = mealType;
+      existing.note = note;
+      var combined = new Date((existing.date) + 'T' + (existing.time) + ':00');
+      if (!isNaN(combined.getTime())) existing.ts = combined.toISOString();
+      // photoPath is intentionally left untouched — the uploaded photo is
+      // never moved/renamed, only the record's metadata changes.
+      existing.synced = false; // mark for re-sync so meals.json/latest.md pick up the edit
+      saveMeals(meals);
+      renderTimeline();
+      updateSettingsStatus();
+      resetCaptureForm();
+      switchTab('timeline');
+      toast('Meal updated');
+      if (isDropboxConnected()){
+        syncNow().catch(function(e){ console.warn('[Meal Lens] re-sync after edit failed', e); });
+      }
+      return;
+    }
+
     if (!pendingCapture){ toast('Snap or choose a photo first'); return; }
     var now = new Date();
-    var parts = localDateParts(now);
-    var mealType = selectedMealType || guessMealType(now);
-    var note = document.getElementById('noteInput').value.trim();
-    var photoPath = DROPBOX_FOLDER + '/photos/' + parts.date + '/' + parts.hhmmss + '_' + mealType.toLowerCase() + '.jpg';
+    var nowParts = localDateParts(now);
+    var finalDate = dateVal || nowParts.date;
+    var finalTime = timeVal || nowParts.time;
+    var combinedNow = new Date(finalDate + 'T' + finalTime + ':00');
+    var tsVal = !isNaN(combinedNow.getTime()) ? combinedNow.toISOString() : now.toISOString();
+    var hhmmss = finalTime.replace(':', '') + pad2(now.getSeconds());
+    var photoPath = DROPBOX_FOLDER + '/photos/' + finalDate + '/' + hhmmss + '_' + mealType.toLowerCase() + '.jpg';
 
     blobToDataURL(pendingCapture.blob).then(function(fullDataURL){
       var meal = {
         id: uid(),
-        ts: now.toISOString(),
-        date: parts.date,
-        time: parts.time,
+        ts: tsVal,
+        date: finalDate,
+        time: finalTime,
         mealType: mealType,
         note: note,
         photoPath: photoPath,
@@ -1189,9 +1191,15 @@
       });
     });
 
-    document.getElementById('micBtn').addEventListener('click', toggleVoice);
-    document.getElementById('captureLangSelect').addEventListener('change', function(e){ setLang(e.target.value); });
-    document.getElementById('settingsLangSelect').addEventListener('change', function(e){ setLang(e.target.value); });
+    document.getElementById('timelineList').addEventListener('click', function(e){
+      var row = e.target.closest ? e.target.closest('.meal-row') : null;
+      if (!row) return;
+      var id = row.getAttribute('data-id');
+      var meal = loadMeals().filter(function(m){ return m.id === id; })[0];
+      if (!meal) return;
+      enterEditMode(meal);
+      switchTab('capture');
+    });
 
     document.getElementById('refToggle').addEventListener('click', function(){
       var body = document.getElementById('refBody');
@@ -1225,12 +1233,6 @@
     registerServiceWorker();
     attachHandlers();
     resetCaptureForm();
-
-    var savedLang = getLang();
-    var a = document.getElementById('captureLangSelect');
-    var b = document.getElementById('settingsLangSelect');
-    if (a) a.value = savedLang;
-    if (b) b.value = savedLang;
 
     // Render instantly from local cache — never block the UI on network.
     renderTimeline();
@@ -1266,7 +1268,9 @@
     switchTab: switchTab,
     isDropboxConnected: isDropboxConnected,
     onFileChosen: onFileChosen,
-    saveMealFromForm: saveMealFromForm
+    saveMealFromForm: saveMealFromForm,
+    enterEditMode: enterEditMode,
+    localDateParts: localDateParts
   };
 })();
 </script>

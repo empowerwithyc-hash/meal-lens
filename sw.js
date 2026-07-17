@@ -1,7 +1,7 @@
 // Meal Lens service worker
 // Bump-friendly: single CACHE constant. Bump this string on every future update
 // so phones don't keep serving a stale app shell forever.
-const CACHE = 'meal-lens-v1';
+const CACHE = 'meal-lens-v2';
 
 const PRECACHE_URLS = [
   './',
