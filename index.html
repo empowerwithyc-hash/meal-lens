@@ -184,6 +184,46 @@
   .date-time-row{ display:flex; gap:10px; margin: 0 0 4px; }
   .date-time-row > div{ flex:1; min-width:0; }
 
+  /* Quick-tag chips */
+  .chips{ display:flex; flex-wrap:wrap; gap:8px; margin: 6px 0 4px; }
+  .chips .chip{
+    min-height:44px; min-width:44px; padding:8px 14px;
+    border-radius: 999px;
+    border:1px solid var(--gold-dim);
+    background: transparent; color:var(--ivory-dim);
+    font-size:13px; cursor:pointer;
+    font-family:'Montserrat', sans-serif;
+  }
+  .chips .chip.active{
+    background: var(--gold); color:var(--dark); border-color:var(--gold); font-weight:700;
+  }
+
+  /* Coaching card (instant, offline, on save) */
+  .coach-overlay{
+    position:fixed; inset:0; background: rgba(0,0,0,0.55);
+    display:none; align-items:flex-end; justify-content:center;
+    padding: 16px calc(16px + var(--safe-r)) calc(16px + var(--safe-b)) calc(16px + var(--safe-l));
+    z-index:60;
+  }
+  .coach-overlay.show{ display:flex; }
+  .coach-card{
+    background: var(--dark2);
+    border: 1px solid var(--gold-dim);
+    border-left: 6px solid var(--gold);
+    border-radius: 1rem;
+    padding: 18px;
+    max-width: 360px; width:100%;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.45);
+    animation: coachIn .2s ease;
+  }
+  @keyframes coachIn{ from{opacity:0; transform:translateY(14px);} to{opacity:1; transform:none;} }
+  .coach-label-row{ display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+  .coach-dot{ width:11px; height:11px; border-radius:50%; flex-shrink:0; background:var(--gold); }
+  .coach-label{ font-size:14px; font-weight:700; letter-spacing:0.02em; color:var(--gold); }
+  .coach-line{ font-size:14.5px; line-height:1.55; color:var(--ivory); margin:0 0 14px; font-family:'Lora', serif; font-style:normal; }
+  .coach-footer{ font-size:10.5px; color:var(--ivory-dim); margin: 10px 0 0; font-style:italic; line-height:1.4; }
+  .coach-card .btn{ min-height:44px; }
+
   /* Timeline */
   .date-heading{
     font-size:12px; text-transform:uppercase; letter-spacing:0.1em;
@@ -213,6 +253,7 @@
   .dot{ width:9px; height:9px; border-radius:50%; flex-shrink:0; }
   .dot.synced{ background: var(--gold); }
   .dot.pending{ background: transparent; border: 2px solid var(--gold-dim); }
+  .flag-dot{ width:9px; height:9px; border-radius:50%; flex-shrink:0; margin-left:2px; }
   .empty-state{ text-align:center; color:var(--ivory-dim); font-size:13.5px; padding: 30px 10px; }
 
   /* Reference */
@@ -344,6 +385,20 @@
         <label class="field-label" for="noteInput">Note</label>
         <textarea id="noteInput" placeholder="What did you eat?"></textarea>
 
+        <label class="field-label">Quick tags (optional)</label>
+        <div class="chips" id="tagGroup">
+          <button class="chip" type="button" data-tag="veg">½ plate veg &amp; fruit</button>
+          <button class="chip" type="button" data-tag="grains">Whole grains</button>
+          <button class="chip" type="button" data-tag="protein">Lean protein / fish / tofu</button>
+          <button class="chip" type="button" data-tag="water">Water</button>
+          <button class="chip" type="button" data-tag="sugary">Sugary drink / juice</button>
+          <button class="chip" type="button" data-tag="alcohol">Alcohol</button>
+          <button class="chip" type="button" data-tag="fried">Fried / oily</button>
+          <button class="chip" type="button" data-tag="redmeat">Red or organ meat</button>
+          <button class="chip" type="button" data-tag="shellfish">Shellfish</button>
+          <button class="chip" type="button" data-tag="dessert">Sweet dessert</button>
+        </div>
+
         <div class="row-gap">
           <button class="btn primary block" id="saveMealBtn">Save meal</button>
           <button class="btn" id="cancelPreviewBtn">Cancel</button>
@@ -461,6 +516,18 @@
 
 <div class="toast" id="toast"></div>
 
+<div class="coach-overlay" id="coachOverlay" aria-live="polite">
+  <div class="coach-card" id="coachCard">
+    <div class="coach-label-row">
+      <span class="coach-dot" id="coachDot"></span>
+      <span class="coach-label" id="coachLabel">Quick aim</span>
+    </div>
+    <p class="coach-line" id="coachLine"></p>
+    <button class="btn primary block" id="coachGotIt">Got it</button>
+    <p class="coach-footer">Reminders based on your reset plan — results vary. Not medical advice.</p>
+  </div>
+</div>
+
 <script>
 (function(){
   'use strict';
@@ -478,6 +545,96 @@
   var DROPBOX_CLIENT_ID = '1311r1pmp1byvub';
   var DROPBOX_FOLDER = '/Shared · YC & Grace/Meal Lens'; // U+00B7 middle dot
   var MAX_THUMBS = 40;
+
+  /* =========================================================
+   * Quick-tag chips + instant coaching verdict.
+   * Tags are OPTIONAL; a save with zero tags still works and
+   * still shows a (neutral) coaching card. Pure local logic —
+   * no network call is ever made to compute or show this.
+   * ========================================================= */
+  var TAGS = [
+    {key:'veg',      label:"½ plate veg & fruit"},
+    {key:'grains',   label:'Whole grains'},
+    {key:'protein',  label:'Lean protein / fish / tofu'},
+    {key:'water',    label:'Water'},
+    {key:'sugary',   label:'Sugary drink / juice'},
+    {key:'alcohol',  label:'Alcohol'},
+    {key:'fried',    label:'Fried / oily'},
+    {key:'redmeat',  label:'Red or organ meat'},
+    {key:'shellfish',label:'Shellfish'},
+    {key:'dessert',  label:'Sweet dessert'}
+  ];
+
+  var VERDICT_COLOUR = {
+    watch_lever:  '#c0492f', // RED
+    watch_purine: '#c9891f', // AMBER
+    watch_swap:   '#c9891f', // AMBER
+    on_plan:      '#2f8f5b', // GREEN
+    neutral:      '#C8A14B'  // GOLD
+  };
+
+  // Priority logic — first match wins. Wording is compliance-controlled;
+  // do not paraphrase these exact strings.
+  function computeVerdict(tags){
+    tags = tags || [];
+    function has(k){ return tags.indexOf(k) !== -1; }
+
+    if (has('sugary') || has('alcohol')){
+      return {
+        flag: 'watch_lever', colour: VERDICT_COLOUR.watch_lever,
+        label: 'Fructose / uric-acid watch',
+        line: "Sugary drinks and alcohol are the biggest lever on both your LDL and uric acid. Make the next drink water — small swap, double win."
+      };
+    }
+    if (has('redmeat') || has('shellfish')){
+      return {
+        flag: 'watch_purine', colour: VERDICT_COLOUR.watch_purine,
+        label: 'Purine watch',
+        line: "Higher-purine choice. Keep the portion modest, load up the veg, and drink water to help flush uric acid."
+      };
+    }
+    if (has('fried') || has('dessert')){
+      return {
+        flag: 'watch_swap', colour: VERDICT_COLOUR.watch_swap,
+        label: 'One swap',
+        line: "A bit heavy on oil or sugar. Balance it — grill or steam next time, and make the next meal a clean Quarter-Quarter-Half plate."
+      };
+    }
+    if (has('veg') && (has('protein') || has('grains'))){
+      return {
+        flag: 'on_plan', colour: VERDICT_COLOUR.on_plan,
+        label: 'On plan',
+        line: "Nice — that's the Quarter-Quarter-Half plate working. Keep this rhythm going."
+      };
+    }
+    return {
+      flag: 'neutral', colour: VERDICT_COLOUR.neutral,
+      label: 'Quick aim',
+      line: "Aim for half the plate veg & fruit, a quarter lean protein, a quarter whole grains — and water alongside."
+    };
+  }
+
+  var coachTimer = null;
+  function showCoachCard(verdict){
+    var overlay = document.getElementById('coachOverlay');
+    if (!overlay) return;
+    var dot = document.getElementById('coachDot');
+    var label = document.getElementById('coachLabel');
+    var line = document.getElementById('coachLine');
+    var card = document.getElementById('coachCard');
+    if (dot) dot.style.background = verdict.colour;
+    if (label){ label.textContent = verdict.label; label.style.color = verdict.colour; }
+    if (line) line.textContent = verdict.line;
+    if (card) card.style.borderLeftColor = verdict.colour;
+    overlay.classList.add('show');
+    clearTimeout(coachTimer);
+    coachTimer = setTimeout(function(){ overlay.classList.remove('show'); }, 6000);
+  }
+  function hideCoachCard(){
+    var overlay = document.getElementById('coachOverlay');
+    if (overlay) overlay.classList.remove('show');
+    clearTimeout(coachTimer);
+  }
 
   /* =========================================================
    * Small utils
@@ -809,7 +966,7 @@
       version: 1,
       updated: new Date().toISOString(),
       meals: meals.map(function(m){
-        return {id: m.id, ts: m.ts, date: m.date, time: m.time, mealType: m.mealType, note: m.note || '', photoPath: m.photoPath};
+        return {id: m.id, ts: m.ts, date: m.date, time: m.time, mealType: m.mealType, note: m.note || '', photoPath: m.photoPath, tags: m.tags || [], flag: m.flag || 'neutral'};
       })
     };
     return dbxUpload(DROPBOX_FOLDER + '/meals.json', JSON.stringify(payload, null, 2));
@@ -826,7 +983,12 @@
     md += '_Updated ' + new Date().toISOString() + '_\n\n';
     sorted.forEach(function(m){
       var noteText = m.note ? ' — "' + String(m.note).replace(/"/g, '\\"') + '"' : '';
-      md += '- ' + m.date + ' ' + m.time + ' · ' + m.mealType + noteText + ' · ' + relativePhoto(m.photoPath) + '\n';
+      var tags = m.tags || [];
+      var flag = m.flag || 'neutral';
+      // Parseable self-assessment tag: "[flag: tag1,tag2]". Omitted entirely
+      // when there are no tags (which only ever happens for the neutral flag).
+      var bracket = tags.length ? (' · [' + flag + ': ' + tags.join(',') + ']') : '';
+      md += '- ' + m.date + ' ' + m.time + ' · ' + m.mealType + noteText + bracket + ' · ' + relativePhoto(m.photoPath) + '\n';
     });
     return md;
   }
@@ -931,6 +1093,8 @@
       var thumb = m.thumb
         ? '<img class="thumb" src="' + m.thumb + '" alt="' + escapeHtml(m.mealType) + '">'
         : '<div class="thumb placeholder">no img</div>';
+      var flag = m.flag || 'neutral';
+      var flagColour = VERDICT_COLOUR[flag] || VERDICT_COLOUR.neutral;
       html += '' +
         '<div class="meal-row" data-id="' + escapeHtml(m.id) + '">' +
           thumb +
@@ -939,6 +1103,7 @@
               '<span class="dot ' + (m.synced ? 'synced' : 'pending') + '" title="' + (m.synced ? 'Synced' : 'Pending sync') + '"></span>' +
               '<span>' + escapeHtml(m.mealType) + '</span>' +
               '<span class="time">' + escapeHtml(m.time) + '</span>' +
+              '<span class="flag-dot" style="background:' + flagColour + '" data-flag="' + escapeHtml(flag) + '" title="' + escapeHtml(flag) + '"></span>' +
             '</div>' +
             '<div class="note">' + (m.note ? escapeHtml(m.note) : '<em>No note</em>') + '</div>' +
           '</div>' +
@@ -986,7 +1151,14 @@
    * ========================================================= */
   var pendingCapture = null; // {blob, thumbDataURL}
   var selectedMealType = null;
+  var selectedTags = []; // quick-tag chip keys selected for the current form
   var editingMealId = null; // set while editing an existing timeline entry
+
+  function syncTagChips(){
+    document.querySelectorAll('#tagGroup .chip').forEach(function(b){
+      b.classList.toggle('active', selectedTags.indexOf(b.dataset.tag) !== -1);
+    });
+  }
 
   function fillDateTimeInputs(dateStr, timeStr){
     var d = document.getElementById('captureDateInput');
@@ -1004,6 +1176,7 @@
     pendingCapture = null;
     editingMealId = null;
     selectedMealType = guessMealType();
+    selectedTags = [];
     document.getElementById('previewWrap').classList.remove('show');
     document.getElementById('captureHero').style.display = 'block';
     document.getElementById('previewImg').style.display = '';
@@ -1014,6 +1187,7 @@
     document.querySelectorAll('#mealTypeGroup .seg-btn').forEach(function(b){
       b.classList.toggle('active', b.dataset.type === selectedMealType);
     });
+    syncTagChips();
   }
 
   function onFileChosen(file){
@@ -1027,12 +1201,14 @@
       document.getElementById('captureHero').style.display = 'none';
       document.getElementById('previewWrap').classList.add('show');
       selectedMealType = guessMealType();
+      selectedTags = [];
       setSaveButtonMode(false);
       var nowParts = localDateParts(new Date());
       fillDateTimeInputs(nowParts.date, nowParts.time);
       document.querySelectorAll('#mealTypeGroup .seg-btn').forEach(function(b){
         b.classList.toggle('active', b.dataset.type === selectedMealType);
       });
+      syncTagChips();
     }).catch(function(e){
       console.error('[Meal Lens] compression failed', e);
       toast('Could not read that photo — try another');
@@ -1046,6 +1222,7 @@
     pendingCapture = null;
     editingMealId = meal.id;
     selectedMealType = meal.mealType;
+    selectedTags = (meal.tags || []).slice();
     document.getElementById('captureHero').style.display = 'none';
     document.getElementById('previewWrap').classList.add('show');
     var img = document.getElementById('previewImg');
@@ -1061,6 +1238,7 @@
     document.querySelectorAll('#mealTypeGroup .seg-btn').forEach(function(b){
       b.classList.toggle('active', b.dataset.type === selectedMealType);
     });
+    syncTagChips();
   }
 
   function saveMealFromForm(){
@@ -1083,6 +1261,9 @@
       existing.time = timeVal || existing.time;
       existing.mealType = mealType;
       existing.note = note;
+      existing.tags = selectedTags.slice();
+      var editVerdict = computeVerdict(selectedTags);
+      existing.flag = editVerdict.flag;
       var combined = new Date((existing.date) + 'T' + (existing.time) + ':00');
       if (!isNaN(combined.getTime())) existing.ts = combined.toISOString();
       // photoPath is intentionally left untouched — the uploaded photo is
@@ -1091,6 +1272,8 @@
       saveMeals(meals);
       renderTimeline();
       updateSettingsStatus();
+      // Show the coaching card immediately — pure local logic, no network.
+      showCoachCard(editVerdict);
       resetCaptureForm();
       switchTab('timeline');
       toast('Meal updated');
@@ -1101,6 +1284,12 @@
     }
 
     if (!pendingCapture){ toast('Snap or choose a photo first'); return; }
+
+    // Compute the coaching verdict and show the card FIRST — instantly, pure
+    // local logic, no network call — before/as the meal record is added.
+    var verdict = computeVerdict(selectedTags);
+    showCoachCard(verdict);
+
     var now = new Date();
     var nowParts = localDateParts(now);
     var finalDate = dateVal || nowParts.date;
@@ -1118,6 +1307,8 @@
         time: finalTime,
         mealType: mealType,
         note: note,
+        tags: selectedTags.slice(),
+        flag: verdict.flag,
         photoPath: photoPath,
         synced: false,
         thumb: pendingCapture.thumbDataURL,
@@ -1189,6 +1380,20 @@
           b.classList.toggle('active', b === btn);
         });
       });
+    });
+
+    document.querySelectorAll('#tagGroup .chip').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var key = btn.dataset.tag;
+        var idx = selectedTags.indexOf(key);
+        if (idx === -1) selectedTags.push(key); else selectedTags.splice(idx, 1);
+        btn.classList.toggle('active', selectedTags.indexOf(key) !== -1);
+      });
+    });
+
+    document.getElementById('coachGotIt').addEventListener('click', hideCoachCard);
+    document.getElementById('coachOverlay').addEventListener('click', function(e){
+      if (e.target === e.currentTarget) hideCoachCard(); // tap outside the card dismisses it
     });
 
     document.getElementById('timelineList').addEventListener('click', function(e){
@@ -1270,7 +1475,14 @@
     onFileChosen: onFileChosen,
     saveMealFromForm: saveMealFromForm,
     enterEditMode: enterEditMode,
-    localDateParts: localDateParts
+    localDateParts: localDateParts,
+    TAGS: TAGS,
+    VERDICT_COLOUR: VERDICT_COLOUR,
+    computeVerdict: computeVerdict,
+    showCoachCard: showCoachCard,
+    hideCoachCard: hideCoachCard,
+    getSelectedTags: function(){ return selectedTags.slice(); },
+    setSelectedTags: function(tags){ selectedTags = (tags || []).slice(); syncTagChips(); }
   };
 })();
 </script>
