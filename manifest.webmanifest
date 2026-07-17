@@ -1,0 +1,36 @@
+{
+  "name": "Meal Lens",
+  "short_name": "Meal Lens",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#1C1917",
+  "theme_color": "#1C1917",
+  "description": "Snap, tag, and sync your meals — offline-first with Dropbox backup.",
+  "icons": [
+    {
+      "src": "./icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "./icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
